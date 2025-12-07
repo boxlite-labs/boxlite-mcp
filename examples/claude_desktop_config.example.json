@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "computer": {
+      "command": "uv",
+      "args": ["run", "boxlite-mcp"]
+    }
+  }
+}

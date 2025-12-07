@@ -2,84 +2,75 @@
 
 MCP server for computer use through an isolated sandbox environment.
 
-Provides a `computer` tool compatible with [Anthropic's computer use API](https://docs.anthropic.com/en/docs/agents-and-tools/computer-use), enabling AI agents to control a full desktop environment safely within a secure sandbox.
+Provides a `computer` tool compatible with [Anthropic's computer use API](https://docs.anthropic.com/en/docs/agents-and-tools/computer-use), enabling AI agents to control a full desktop environment safely.
 
 ## Features
 
-- Full Ubuntu desktop with XFCE environment
+- Full Ubuntu desktop with XFCE environment (1024x768)
 - Anthropic computer use API compatible
 - Mouse control (click, drag, scroll)
 - Keyboard input (typing, key combinations)
 - Screenshot capture
 - Secure sandbox isolation
 
-## Installation
-
-```bash
-# Using uv (recommended)
-uv pip install boxlite-mcp
-
-# Or using pip
-pip install boxlite-mcp
-```
-
-## Configuration
+## Quick Start
 
 ### Claude Desktop
 
-Add to your `claude_desktop_config.json` (see `examples/claude_desktop_config.example.json`):
+Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
   "mcpServers": {
     "computer": {
-      "command": "uv",
-      "args": ["run", "boxlite-mcp"]
+      "command": "uvx",
+      "args": ["--prerelease=allow", "boxlite-mcp"]
     }
   }
 }
 ```
 
-## Usage
+> **Note:** `--prerelease=allow` is required until boxlite reaches stable release.
 
-Once configured, the MCP server provides a `computer` tool with the following actions:
+### Manual Installation
 
-| Action | Description |
-|--------|-------------|
-| `screenshot` | Capture the current screen |
-| `mouse_move` | Move cursor to coordinates |
-| `left_click` | Left click (optionally at coordinates) |
-| `right_click` | Right click (optionally at coordinates) |
-| `middle_click` | Middle click (optionally at coordinates) |
-| `double_click` | Double click |
-| `triple_click` | Triple click |
-| `left_click_drag` | Click and drag between coordinates |
-| `type` | Type text |
-| `key` | Press key or key combination (e.g., 'Return', 'ctrl+c') |
-| `scroll` | Scroll in a direction |
-| `cursor_position` | Get current cursor position |
+```bash
+pip install boxlite-mcp --pre
+```
 
-### Coordinate System
+## Available Actions
 
-- Origin `[0, 0]` is at the top-left corner
-- Screen resolution: 1024x768 pixels
-- Coordinates are specified as `[x, y]` arrays
+| Action | Description | Parameters |
+|--------|-------------|------------|
+| `screenshot` | Capture current screen | - |
+| `mouse_move` | Move cursor | `coordinate: [x, y]` |
+| `left_click` | Left click | `coordinate?: [x, y]` |
+| `right_click` | Right click | `coordinate?: [x, y]` |
+| `middle_click` | Middle click | `coordinate?: [x, y]` |
+| `double_click` | Double click | `coordinate?: [x, y]` |
+| `triple_click` | Triple click | `coordinate?: [x, y]` |
+| `left_click_drag` | Click and drag | `start_coordinate: [x, y]`, `end_coordinate: [x, y]` |
+| `type` | Type text | `text: string` |
+| `key` | Press key combination | `key: string` (e.g., `Return`, `ctrl+c`) |
+| `scroll` | Scroll | `coordinate: [x, y]`, `scroll_direction: up\|down\|left\|right`, `scroll_amount?: int` |
+| `cursor_position` | Get cursor position | - |
+
+Coordinates use `[x, y]` format with origin at top-left `[0, 0]`.
 
 ## Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/boxlite-labs/boxlite-mcp.git
 cd boxlite-mcp
 
-# Install with dev dependencies
+# Install dependencies
 uv sync --extra dev
-
-# Run linting
-uv run ruff check .
 
 # Run tests
 uv run pytest
+
+# Run linting
+uv run ruff check .
 ```
 
 ## License

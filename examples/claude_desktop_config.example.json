@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "computer": {
-      "command": "uv",
-      "args": ["run", "boxlite-mcp"]
+      "command": "uvx",
+      "args": ["--prerelease=allow", "boxlite-mcp"]
     }
   }
 }

@@ -15,6 +15,12 @@ Provides a `computer` tool compatible with [Anthropic's computer use API](https:
 
 ## Quick Start
 
+### Claude Code
+
+```bash
+claude mcp add computer -- uvx --prerelease=allow boxlite-mcp
+```
+
 ### Claude Desktop
 
 Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):

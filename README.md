@@ -4,6 +4,10 @@ MCP server for computer use through an isolated sandbox environment.
 
 Provides a `computer` tool compatible with [Anthropic's computer use API](https://docs.anthropic.com/en/docs/agents-and-tools/computer-use), enabling AI agents to control a full desktop environment safely.
 
+## Demo
+
+[▶️ Watch the demo on YouTube](https://youtu.be/JjwLg6ww234)
+
 ## Features
 
 - Full Ubuntu desktop with XFCE environment (1024x768)

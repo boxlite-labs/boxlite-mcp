@@ -4,6 +4,8 @@ MCP server for computer use through an isolated sandbox environment.
 
 Provides a `computer` tool compatible with [Anthropic's computer use API](https://docs.anthropic.com/en/docs/agents-and-tools/computer-use), enabling AI agents to control a full desktop environment safely.
 
+[![Demo Video](https://img.youtube.com/vi/JjwLg6ww234/maxresdefault.jpg)](https://youtu.be/JjwLg6ww234)
+
 ## Features
 
 - Full Ubuntu desktop with XFCE environment (1024x768)
@@ -18,7 +20,7 @@ Provides a `computer` tool compatible with [Anthropic's computer use API](https:
 ### Claude Code
 
 ```bash
-claude mcp add computer -- uvx --prerelease=allow boxlite-mcp
+claude mcp add computer -- uvx boxlite-mcp
 ```
 
 ### Claude Desktop
@@ -30,18 +32,16 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
   "mcpServers": {
     "computer": {
       "command": "uvx",
-      "args": ["--prerelease=allow", "boxlite-mcp"]
+      "args": ["boxlite-mcp"]
     }
   }
 }
 ```
 
-> **Note:** `--prerelease=allow` is required until boxlite reaches stable release.
-
 ### Manual Installation
 
 ```bash
-pip install boxlite-mcp --pre
+pip install boxlite-mcp
 ```
 
 ## Available Actions

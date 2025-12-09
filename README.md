@@ -1,5 +1,7 @@
 # boxlite-mcp
 
+> **Powered by [BoxLite](https://boxlite-labs.github.io/website/)** - An embeddable virtual machine runtime following the SQLite philosophy. BoxLite provides hardware-level isolation for AI agents with no daemon required, combining container simplicity with VM security. Coming soon as open source!
+
 MCP server for computer use through an isolated sandbox environment.
 
 Provides a `computer` tool compatible with [Anthropic's computer use API](https://docs.anthropic.com/en/docs/agents-and-tools/computer-use), enabling AI agents to control a full desktop environment safely.

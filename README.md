@@ -8,6 +8,12 @@ Provides a `computer` tool compatible with [Anthropic's computer use API](https:
 
 [▶️ Watch the demo on YouTube](https://youtu.be/JjwLg6ww234)
 
+
+
+https://github.com/user-attachments/assets/0685d428-64e4-4a68-adfe-c24dc0dc5ae8
+
+
+
 ## Features
 
 - Full Ubuntu desktop with XFCE environment (1024x768)

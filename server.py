@@ -11,10 +11,9 @@ from typing import Optional
 
 import anyio
 import boxlite
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, ImageContent
-
 from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import ImageContent, TextContent, Tool
 
 # Configure logging to stderr only (to avoid interfering with MCP stdio protocol)
 logging.basicConfig(
@@ -29,162 +28,179 @@ class ComputerToolHandler:
     """
     Handler for computer use actions.
 
-    Manages a ComputerBox instance and delegates MCP tool calls to its API.
+    Manages multiple ComputerBox instances and delegates MCP tool calls to their APIs.
     """
 
     def __init__(self, memory_mib: int = 4096, cpus: int = 4):
         self._memory_mib = memory_mib
         self._cpus = cpus
-        self._computer: Optional[boxlite.ComputerBox] = None
-        self._init_error: Optional[str] = None
+        self._computers: dict[str, boxlite.ComputerBox] = {}
         self._lock = anyio.Lock()
-        self._initialized = False
 
-    async def _ensure_ready(self):
-        """Get ComputerBox, initializing on first call."""
-        if self._initialized:
-            if self._init_error:
-                raise RuntimeError(f"ComputerBox initialization failed: {self._init_error}")
-            return None
+    def _get_computer(self, computer_id: str) -> boxlite.ComputerBox:
+        """Get a ComputerBox by ID."""
+        if computer_id not in self._computers:
+            raise RuntimeError(f"Computer '{computer_id}' not found. Use 'start' action first.")
+        return self._computers[computer_id]
 
+    async def start(self, **kwargs) -> dict:
+        """Start a new computer instance and return its ID."""
         async with self._lock:
-            # Double-check after acquiring lock
-            if self._initialized:
-                if self._init_error:
-                    raise RuntimeError(f"ComputerBox initialization failed: {self._init_error}")
-                return None
-
             try:
                 logger.info("Creating ComputerBox...")
-                self._computer = boxlite.ComputerBox(cpu=self._cpus, memory=self._memory_mib)
-                await self._computer.__aenter__()
-                logger.info(f"ComputerBox created. Desktop at: {self._computer.endpoint()}")
+                computer = boxlite.ComputerBox(cpu=self._cpus, memory=self._memory_mib)
+                await computer.__aenter__()
+                computer_id = computer.id
+                logger.info(f"ComputerBox {computer_id} created. Desktop at: {computer.endpoint()}")
 
                 # Wait for desktop to be ready
-                logger.info("Waiting for desktop to become ready...")
-                await self._computer.wait_until_ready()
-                logger.info("Desktop is ready")
-                self._init_error = None
+                logger.info(f"Waiting for desktop {computer_id} to become ready...")
+                await computer.wait_until_ready()
+                logger.info(f"Desktop {computer_id} is ready")
+
+                self._computers[computer_id] = computer
+                return {"computer_id": computer_id}
 
             except Exception as e:
-                error_msg = f"Failed to initialize ComputerBox: {e}"
+                error_msg = f"Failed to start ComputerBox: {e}"
                 logger.error(error_msg, exc_info=True)
-                self._init_error = error_msg
-                self._computer = None
-                raise
+                raise RuntimeError(error_msg)
 
-            self._initialized = True
-            return None
+    async def stop(self, computer_id: str, **kwargs) -> dict:
+        """Stop and cleanup a specific computer instance."""
+        async with self._lock:
+            if computer_id not in self._computers:
+                raise RuntimeError(f"Computer '{computer_id}' not found")
 
-    async def shutdown(self):
-        """Cleanup ComputerBox."""
-        if self._computer:
-            logger.info("Shutting down ComputerBox...")
+            computer = self._computers[computer_id]
+            logger.info(f"Shutting down ComputerBox {computer_id}...")
             try:
-                await self._computer.__aexit__(None, None, None)
-                logger.info("ComputerBox shut down successfully")
+                await computer.__aexit__(None, None, None)
+                logger.info(f"ComputerBox {computer_id} shut down successfully")
             except Exception as e:
-                logger.error(f"Error during ComputerBox cleanup: {e}", exc_info=True)
+                logger.error(f"Error during ComputerBox {computer_id} cleanup: {e}", exc_info=True)
             finally:
-                self._computer = None
+                del self._computers[computer_id]
+
+            return {"success": True}
+
+    async def shutdown_all(self):
+        """Cleanup all ComputerBox instances."""
+        async with self._lock:
+            for computer_id, computer in list(self._computers.items()):
+                logger.info(f"Shutting down ComputerBox {computer_id}...")
+                try:
+                    await computer.__aexit__(None, None, None)
+                    logger.info(f"ComputerBox {computer_id} shut down successfully")
+                except Exception as e:
+                    logger.error(
+                        f"Error during ComputerBox {computer_id} cleanup: {e}",
+                        exc_info=True,
+                    )
+            self._computers.clear()
 
     # Action handlers - delegation to ComputerBox API
 
-    async def screenshot(self, **kwargs) -> dict:
+    async def screenshot(self, computer_id: str, **kwargs) -> dict:
         """Capture screenshot."""
-        await self._ensure_ready()
-        result = await self._computer.screenshot()
+        computer = self._get_computer(computer_id)
+        result = await computer.screenshot()
         return {
             "image_data": result["data"],
             "width": result["width"],
             "height": result["height"],
         }
 
-    async def mouse_move(self, coordinate: list[int], **kwargs) -> dict:
+    async def mouse_move(self, computer_id: str, coordinate: list[int], **kwargs) -> dict:
         """Move mouse to coordinates."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         x, y = coordinate
-        await self._computer.mouse_move(x, y)
+        await computer.mouse_move(x, y)
         return {"success": True}
 
-    async def left_click(self, coordinate: Optional[list[int]] = None, **kwargs) -> dict:
+    async def left_click(self, computer_id: str, coordinate: Optional[list[int]] = None,
+                         **kwargs) -> dict:
         """Click left mouse button."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         if coordinate:
             x, y = coordinate
-            await self._computer.mouse_move(x, y)
-        await self._computer.left_click()
+            await computer.mouse_move(x, y)
+        await computer.left_click()
         return {"success": True}
 
-    async def right_click(self, coordinate: Optional[list[int]] = None, **kwargs) -> dict:
+    async def right_click(self, computer_id: str, coordinate: Optional[list[int]] = None,
+                          **kwargs) -> dict:
         """Click right mouse button."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         if coordinate:
             x, y = coordinate
-            await self._computer.mouse_move(x, y)
-        await self._computer.right_click()
+            await computer.mouse_move(x, y)
+        await computer.right_click()
         return {"success": True}
 
-    async def middle_click(self, coordinate: Optional[list[int]] = None, **kwargs) -> dict:
+    async def middle_click(self, computer_id: str, coordinate: Optional[list[int]] = None,
+                           **kwargs) -> dict:
         """Click middle mouse button."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         if coordinate:
             x, y = coordinate
-            await self._computer.mouse_move(x, y)
-        await self._computer.middle_click()
+            await computer.mouse_move(x, y)
+        await computer.middle_click()
         return {"success": True}
 
-    async def double_click(self, coordinate: Optional[list[int]] = None, **kwargs) -> dict:
+    async def double_click(self, computer_id: str, coordinate: Optional[list[int]] = None,
+                           **kwargs) -> dict:
         """Double click left mouse button."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         if coordinate:
             x, y = coordinate
-            await self._computer.mouse_move(x, y)
-        await self._computer.double_click()
+            await computer.mouse_move(x, y)
+        await computer.double_click()
         return {"success": True}
 
-    async def triple_click(self, coordinate: Optional[list[int]] = None, **kwargs) -> dict:
+    async def triple_click(self, computer_id: str, coordinate: Optional[list[int]] = None,
+                           **kwargs) -> dict:
         """Triple click left mouse button."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         if coordinate:
             x, y = coordinate
-            await self._computer.mouse_move(x, y)
-        await self._computer.triple_click()
+            await computer.mouse_move(x, y)
+        await computer.triple_click()
         return {"success": True}
 
-    async def left_click_drag(self, start_coordinate: list[int], end_coordinate: list[int],
-                              **kwargs) -> dict:
+    async def left_click_drag(self, computer_id: str, start_coordinate: list[int],
+                              end_coordinate: list[int], **kwargs) -> dict:
         """Drag from start to end coordinates."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         start_x, start_y = start_coordinate
         end_x, end_y = end_coordinate
-        await self._computer.left_click_drag(start_x, start_y, end_x, end_y)
+        await computer.left_click_drag(start_x, start_y, end_x, end_y)
         return {"success": True}
 
-    async def type(self, text: str, **kwargs) -> dict:
+    async def type(self, computer_id: str, text: str, **kwargs) -> dict:
         """Type text."""
-        await self._ensure_ready()
-        await self._computer.type(text)
+        computer = self._get_computer(computer_id)
+        await computer.type(text)
         return {"success": True}
 
-    async def key(self, key: str, **kwargs) -> dict:
+    async def key(self, computer_id: str, key: str, **kwargs) -> dict:
         """Press key or key combination."""
-        await self._ensure_ready()
-        await self._computer.key(key)
+        computer = self._get_computer(computer_id)
+        await computer.key(key)
         return {"success": True}
 
-    async def scroll(self, coordinate: list[int], scroll_direction: str, scroll_amount: int = 3,
-                     **kwargs) -> dict:
+    async def scroll(self, computer_id: str, coordinate: list[int], scroll_direction: str,
+                     scroll_amount: int = 3, **kwargs) -> dict:
         """Scroll at coordinates."""
-        await self._ensure_ready()
+        computer = self._get_computer(computer_id)
         x, y = coordinate
-        await self._computer.scroll(x, y, scroll_direction, scroll_amount)
+        await computer.scroll(x, y, scroll_direction, scroll_amount)
         return {"success": True}
 
-    async def cursor_position(self, **kwargs) -> dict:
+    async def cursor_position(self, computer_id: str, **kwargs) -> dict:
         """Get current cursor position."""
-        await self._ensure_ready()
-        x, y = await self._computer.cursor_position()
+        computer = self._get_computer(computer_id)
+        x, y = await computer.cursor_position()
         return {"x": x, "y": y}
 
 
@@ -207,7 +223,11 @@ async def main():
 
 This tool allows you to interact with applications, manipulate files, and browse the web just like a human using a desktop computer. The computer starts with a clean Ubuntu environment with XFCE desktop.
 
-Available actions:
+Lifecycle actions:
+- start: Start a new computer instance (returns computer_id)
+- stop: Stop a computer instance (requires computer_id)
+
+Computer actions (all require computer_id):
 - screenshot: Capture the current screen
 - mouse_move: Move cursor to coordinates
 - left_click, right_click, middle_click: Click mouse buttons
@@ -226,6 +246,8 @@ Screen resolution is 1024x768 pixels.""",
                         "action": {
                             "type": "string",
                             "enum": [
+                                "start",
+                                "stop",
                                 "screenshot",
                                 "mouse_move",
                                 "left_click",
@@ -240,6 +262,13 @@ Screen resolution is 1024x768 pixels.""",
                                 "cursor_position",
                             ],
                             "description": "The action to perform",
+                        },
+                        "computer_id": {
+                            "type": "string",
+                            "description": (
+                                "The computer instance ID (returned by 'start', "
+                                "required for all other actions except 'start')"
+                            ),
                         },
                         "coordinate": {
                             "type": "array",
@@ -307,7 +336,22 @@ Screen resolution is 1024x768 pixels.""",
             result = await action_handler(**arguments)
 
             # Format response based on action
-            if action == "screenshot":
+            if action == "start":
+                computer_id = result["computer_id"]
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Computer started with ID: {computer_id}",
+                    )
+                ]
+            elif action == "stop":
+                return [
+                    TextContent(
+                        type="text",
+                        text="Computer stopped successfully",
+                    )
+                ]
+            elif action == "screenshot":
                 return [
                     ImageContent(
                         type="image",
@@ -431,7 +475,7 @@ Screen resolution is 1024x768 pixels.""",
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
     finally:
-        await handler.shutdown()
+        await handler.shutdown_all()
 
 
 def run():

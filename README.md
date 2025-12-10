@@ -2,6 +2,16 @@
 
 MCP server providing isolated sandbox environments for AI agents.
 
+## The Problem
+
+Today's AI apps don't just generate text – they write and run code, call tools, read your files, and hit the network. Running all of this directly on your machine creates real risks:
+
+- **Security** - Malicious or buggy code can damage your system
+- **Privacy** - Sensitive files and credentials are exposed
+- **Reliability** - Runaway processes can consume resources or crash your machine
+
+BoxLite solves this by giving AI agents their own isolated VM – full freedom inside, complete safety outside.
+
 ## Powered by BoxLite
 
 [BoxLite](https://boxlite-labs.github.io/website/) is an embeddable virtual machine runtime that follows the SQLite philosophy - simple, lightweight, and zero-configuration.

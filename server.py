@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-BoxLite MCP Server - Computer Use via Isolated Sandbox
+BoxLite MCP Server - Isolated Sandbox Environments
 
-Provides a single 'computer' tool matching Anthropic's computer use API.
-Runs a full desktop environment inside an isolated sandbox.
+Provides multiple sandbox tools:
+- computer: Full desktop environment (Anthropic computer use API compatible)
+- browser: Browser with CDP endpoint for automation
+- code_interpreter: Python code execution sandbox
+- sandbox: Generic container for shell commands
 """
 import logging
 import sys
@@ -22,6 +25,191 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("boxlite-mcp")
+
+
+class BrowserToolHandler:
+    """Handler for browser tool actions."""
+
+    def __init__(self):
+        self._browsers: dict[str, boxlite.BrowserBox] = {}
+        self._lock = anyio.Lock()
+
+    def _get_browser(self, browser_id: str) -> boxlite.BrowserBox:
+        if browser_id not in self._browsers:
+            raise RuntimeError(f"Browser '{browser_id}' not found. Use 'start' action first.")
+        return self._browsers[browser_id]
+
+    async def start(self, **kwargs) -> dict:
+        """Start a new browser instance."""
+        async with self._lock:
+            try:
+                logger.info("Creating BrowserBox...")
+                browser = boxlite.BrowserBox()
+                await browser.__aenter__()
+                browser_id = browser.id
+                endpoint = browser.endpoint()
+                logger.info(f"BrowserBox {browser_id} created. Endpoint: {endpoint}")
+                self._browsers[browser_id] = browser
+                return {"browser_id": browser_id, "endpoint": endpoint}
+            except Exception as e:
+                error_msg = f"Failed to start BrowserBox: {e}"
+                logger.error(error_msg, exc_info=True)
+                raise RuntimeError(error_msg)
+
+    async def stop(self, browser_id: str, **kwargs) -> dict:
+        """Stop a browser instance."""
+        async with self._lock:
+            if browser_id not in self._browsers:
+                raise RuntimeError(f"Browser '{browser_id}' not found")
+            browser = self._browsers[browser_id]
+            logger.info(f"Shutting down BrowserBox {browser_id}...")
+            try:
+                await browser.__aexit__(None, None, None)
+                logger.info(f"BrowserBox {browser_id} shut down successfully")
+            except Exception as e:
+                logger.error(f"Error during BrowserBox {browser_id} cleanup: {e}", exc_info=True)
+            finally:
+                del self._browsers[browser_id]
+            return {"success": True}
+
+    async def shutdown_all(self):
+        """Cleanup all browser instances."""
+        async with self._lock:
+            for browser_id, browser in list(self._browsers.items()):
+                logger.info(f"Shutting down BrowserBox {browser_id}...")
+                try:
+                    await browser.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.error(f"Error during BrowserBox {browser_id} cleanup: {e}", exc_info=True)
+            self._browsers.clear()
+
+
+class CodeInterpreterToolHandler:
+    """Handler for code_interpreter tool actions."""
+
+    def __init__(self):
+        self._interpreters: dict[str, boxlite.CodeBox] = {}
+        self._lock = anyio.Lock()
+
+    def _get_interpreter(self, interpreter_id: str) -> boxlite.CodeBox:
+        if interpreter_id not in self._interpreters:
+            raise RuntimeError(f"Interpreter '{interpreter_id}' not found. Use 'start' action first.")
+        return self._interpreters[interpreter_id]
+
+    async def start(self, **kwargs) -> dict:
+        """Start a new code interpreter instance."""
+        async with self._lock:
+            try:
+                logger.info("Creating CodeBox...")
+                interpreter = boxlite.CodeBox()
+                await interpreter.__aenter__()
+                interpreter_id = interpreter.id
+                logger.info(f"CodeBox {interpreter_id} created")
+                self._interpreters[interpreter_id] = interpreter
+                return {"interpreter_id": interpreter_id}
+            except Exception as e:
+                error_msg = f"Failed to start CodeBox: {e}"
+                logger.error(error_msg, exc_info=True)
+                raise RuntimeError(error_msg)
+
+    async def stop(self, interpreter_id: str, **kwargs) -> dict:
+        """Stop a code interpreter instance."""
+        async with self._lock:
+            if interpreter_id not in self._interpreters:
+                raise RuntimeError(f"Interpreter '{interpreter_id}' not found")
+            interpreter = self._interpreters[interpreter_id]
+            logger.info(f"Shutting down CodeBox {interpreter_id}...")
+            try:
+                await interpreter.__aexit__(None, None, None)
+                logger.info(f"CodeBox {interpreter_id} shut down successfully")
+            except Exception as e:
+                logger.error(f"Error during CodeBox {interpreter_id} cleanup: {e}", exc_info=True)
+            finally:
+                del self._interpreters[interpreter_id]
+            return {"success": True}
+
+    async def run(self, interpreter_id: str, code: str, **kwargs) -> dict:
+        """Execute Python code."""
+        interpreter = self._get_interpreter(interpreter_id)
+        output = await interpreter.run(code)
+        return {"output": output}
+
+    async def shutdown_all(self):
+        """Cleanup all interpreter instances."""
+        async with self._lock:
+            for interpreter_id, interpreter in list(self._interpreters.items()):
+                logger.info(f"Shutting down CodeBox {interpreter_id}...")
+                try:
+                    await interpreter.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.error(f"Error during CodeBox {interpreter_id} cleanup: {e}", exc_info=True)
+            self._interpreters.clear()
+
+
+class SandboxToolHandler:
+    """Handler for sandbox tool actions."""
+
+    def __init__(self):
+        self._sandboxes: dict[str, boxlite.SimpleBox] = {}
+        self._lock = anyio.Lock()
+
+    def _get_sandbox(self, sandbox_id: str) -> boxlite.SimpleBox:
+        if sandbox_id not in self._sandboxes:
+            raise RuntimeError(f"Sandbox '{sandbox_id}' not found. Use 'start' action first.")
+        return self._sandboxes[sandbox_id]
+
+    async def start(self, image: str, **kwargs) -> dict:
+        """Start a new sandbox instance."""
+        async with self._lock:
+            try:
+                logger.info(f"Creating SimpleBox with image '{image}'...")
+                sandbox = boxlite.SimpleBox(image=image)
+                await sandbox.__aenter__()
+                sandbox_id = sandbox.id
+                logger.info(f"SimpleBox {sandbox_id} created")
+                self._sandboxes[sandbox_id] = sandbox
+                return {"sandbox_id": sandbox_id}
+            except Exception as e:
+                error_msg = f"Failed to start SimpleBox: {e}"
+                logger.error(error_msg, exc_info=True)
+                raise RuntimeError(error_msg)
+
+    async def stop(self, sandbox_id: str, **kwargs) -> dict:
+        """Stop a sandbox instance."""
+        async with self._lock:
+            if sandbox_id not in self._sandboxes:
+                raise RuntimeError(f"Sandbox '{sandbox_id}' not found")
+            sandbox = self._sandboxes[sandbox_id]
+            logger.info(f"Shutting down SimpleBox {sandbox_id}...")
+            try:
+                await sandbox.__aexit__(None, None, None)
+                logger.info(f"SimpleBox {sandbox_id} shut down successfully")
+            except Exception as e:
+                logger.error(f"Error during SimpleBox {sandbox_id} cleanup: {e}", exc_info=True)
+            finally:
+                del self._sandboxes[sandbox_id]
+            return {"success": True}
+
+    async def exec(self, sandbox_id: str, command: str, **kwargs) -> dict:
+        """Execute a shell command."""
+        sandbox = self._get_sandbox(sandbox_id)
+        result = await sandbox.exec("sh", "-c", command)
+        return {
+            "exit_code": result.exit_code,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+
+    async def shutdown_all(self):
+        """Cleanup all sandbox instances."""
+        async with self._lock:
+            for sandbox_id, sandbox in list(self._sandboxes.items()):
+                logger.info(f"Shutting down SimpleBox {sandbox_id}...")
+                try:
+                    await sandbox.__aexit__(None, None, None)
+                except Exception as e:
+                    logger.error(f"Error during SimpleBox {sandbox_id} cleanup: {e}", exc_info=True)
+            self._sandboxes.clear()
 
 
 class ComputerToolHandler:
@@ -206,17 +394,110 @@ class ComputerToolHandler:
 
 async def main():
     """Main entry point for the MCP server."""
-    logger.info("Starting BoxLite Computer MCP Server")
+    logger.info("Starting BoxLite MCP Server")
 
-    # Create handler and server
-    handler = ComputerToolHandler()
-    server = Server("boxlite-computer")
+    # Create handlers and server
+    computer_handler = ComputerToolHandler()
+    browser_handler = BrowserToolHandler()
+    code_handler = CodeInterpreterToolHandler()
+    sandbox_handler = SandboxToolHandler()
+    server = Server("boxlite")
 
-    # Register unified computer tool (Anthropic-compatible)
     @server.list_tools()
     async def list_tools() -> list[Tool]:
-        """List available computer use tools."""
+        """List available tools."""
         return [
+            # Browser tool
+            Tool(
+                name="browser",
+                description="""Start a browser with Chrome DevTools Protocol (CDP) endpoint.
+
+Use this to get a browser endpoint that can be connected to via Puppeteer, Playwright, or Selenium.
+
+Actions:
+- start: Start browser instance (returns browser_id and endpoint URL)
+- stop: Stop browser instance (requires browser_id)""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["start", "stop"],
+                            "description": "The action to perform",
+                        },
+                        "browser_id": {
+                            "type": "string",
+                            "description": "Browser instance ID (required for 'stop')",
+                        },
+                    },
+                    "required": ["action"],
+                },
+            ),
+
+            # Code interpreter tool
+            Tool(
+                name="code_interpreter",
+                description="""Execute Python code in an isolated sandbox.
+
+Actions:
+- start: Start Python interpreter (returns interpreter_id)
+- stop: Stop interpreter (requires interpreter_id)
+- run: Execute Python code (requires interpreter_id and code)""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["start", "stop", "run"],
+                            "description": "The action to perform",
+                        },
+                        "interpreter_id": {
+                            "type": "string",
+                            "description": "Interpreter instance ID (required for 'stop' and 'run')",
+                        },
+                        "code": {
+                            "type": "string",
+                            "description": "Python code to execute (for 'run' action)",
+                        },
+                    },
+                    "required": ["action"],
+                },
+            ),
+
+            # Sandbox tool
+            Tool(
+                name="sandbox",
+                description="""Run shell commands in an isolated container.
+
+Actions:
+- start: Start container with specified image (requires image, returns sandbox_id)
+- stop: Stop container (requires sandbox_id)
+- exec: Execute shell command (requires sandbox_id and command)""",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["start", "stop", "exec"],
+                            "description": "The action to perform",
+                        },
+                        "sandbox_id": {
+                            "type": "string",
+                            "description": "Sandbox instance ID (required for 'stop' and 'exec')",
+                        },
+                        "image": {
+                            "type": "string",
+                            "description": "Container image to use (for 'start' action, e.g., 'alpine', 'ubuntu')",
+                        },
+                        "command": {
+                            "type": "string",
+                            "description": "Shell command to execute (for 'exec' action)",
+                        },
+                    },
+                    "required": ["action"],
+                },
+            ),
+            # Computer tool (existing)
             Tool(
                 name="computer",
                 description="""Control a desktop computer through an isolated sandbox environment.
@@ -317,146 +598,219 @@ Screen resolution is 1024x768 pixels.""",
 
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageContent]:
-        """Handle unified computer tool calls."""
-        if name != "computer":
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
-
+        """Handle tool calls."""
         action = arguments.get("action")
         if not action:
             return [TextContent(type="text", text="Missing 'action' parameter")]
 
-        logger.info(f"Computer action: {action} with args: {arguments}")
+        logger.info(f"Tool '{name}' action: {action} with args: {arguments}")
 
         try:
-            # Route action to handler method
-            action_handler = getattr(handler, action, None)
-            if not action_handler:
-                return [TextContent(type="text", text=f"Unknown action: {action}")]
+            # Route to browser handler
+            if name == "browser":
+                return await handle_browser_tool(browser_handler, action, arguments)
+            # Route to code_interpreter handler
+            elif name == "code_interpreter":
+                return await handle_code_interpreter_tool(code_handler, action, arguments)
+            # Route to sandbox handler
+            elif name == "sandbox":
+                return await handle_sandbox_tool(sandbox_handler, action, arguments)
+            # Route to computer handler
+            elif name == "computer":
+                return await handle_computer_tool(computer_handler, action, arguments)
+            else:
+                return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
-            result = await action_handler(**arguments)
+        except Exception as exception:
+            logger.error(f"Tool execution error: {exception}", exc_info=True)
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Error executing {name}/{action}: {str(exception)}",
+                )
+            ]
 
-            # Format response based on action
-            if action == "start":
-                computer_id = result["computer_id"]
+    async def handle_browser_tool(handler, action: str, arguments: dict) -> list[TextContent]:
+        """Handle browser tool actions."""
+        if action == "start":
+            result = await handler.start(**arguments)
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Browser started with ID: {result['browser_id']}\nEndpoint: {result['endpoint']}",
+                )
+            ]
+        elif action == "stop":
+            await handler.stop(**arguments)
+            return [TextContent(type="text", text="Browser stopped successfully")]
+        else:
+            return [TextContent(type="text", text=f"Unknown browser action: {action}")]
+
+    async def handle_code_interpreter_tool(handler, action: str, arguments: dict) -> list[TextContent]:
+        """Handle code_interpreter tool actions."""
+        if action == "start":
+            result = await handler.start(**arguments)
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Code interpreter started with ID: {result['interpreter_id']}",
+                )
+            ]
+        elif action == "stop":
+            await handler.stop(**arguments)
+            return [TextContent(type="text", text="Code interpreter stopped successfully")]
+        elif action == "run":
+            result = await handler.run(**arguments)
+            return [TextContent(type="text", text=result["output"])]
+        else:
+            return [TextContent(type="text", text=f"Unknown code_interpreter action: {action}")]
+
+    async def handle_sandbox_tool(handler, action: str, arguments: dict) -> list[TextContent]:
+        """Handle sandbox tool actions."""
+        if action == "start":
+            result = await handler.start(**arguments)
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Sandbox started with ID: {result['sandbox_id']}",
+                )
+            ]
+        elif action == "stop":
+            await handler.stop(**arguments)
+            return [TextContent(type="text", text="Sandbox stopped successfully")]
+        elif action == "exec":
+            result = await handler.exec(**arguments)
+            output_parts = []
+            if result["stdout"]:
+                output_parts.append(result["stdout"])
+            if result["stderr"]:
+                output_parts.append(f"stderr: {result['stderr']}")
+            output_parts.append(f"exit_code: {result['exit_code']}")
+            return [TextContent(type="text", text="\n".join(output_parts))]
+        else:
+            return [TextContent(type="text", text=f"Unknown sandbox action: {action}")]
+
+    async def handle_computer_tool(handler, action: str, arguments: dict) -> list[TextContent | ImageContent]:
+        """Handle computer tool actions."""
+        action_handler = getattr(handler, action, None)
+        if not action_handler:
+            return [TextContent(type="text", text=f"Unknown action: {action}")]
+
+        result = await action_handler(**arguments)
+
+        # Format response based on action
+        if action == "start":
+            computer_id = result["computer_id"]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Computer started with ID: {computer_id}",
+                )
+            ]
+        elif action == "stop":
+            return [
+                TextContent(
+                    type="text",
+                    text="Computer stopped successfully",
+                )
+            ]
+        elif action == "screenshot":
+            return [
+                ImageContent(
+                    type="image",
+                    data=result["image_data"],
+                    mimeType="image/png",
+                )
+            ]
+        elif action == "cursor_position":
+            x, y = result["x"], result["y"]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Cursor position: [{x}, {y}]",
+                )
+            ]
+        elif action == "mouse_move":
+            coord = arguments.get("coordinate", [])
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Moved cursor to {coord}",
+                )
+            ]
+        elif action in ["left_click", "right_click", "middle_click"]:
+            coord = arguments.get("coordinate")
+            if coord:
                 return [
                     TextContent(
                         type="text",
-                        text=f"Computer started with ID: {computer_id}",
-                    )
-                ]
-            elif action == "stop":
-                return [
-                    TextContent(
-                        type="text",
-                        text="Computer stopped successfully",
-                    )
-                ]
-            elif action == "screenshot":
-                return [
-                    ImageContent(
-                        type="image",
-                        data=result["image_data"],
-                        mimeType="image/png",
-                    )
-                ]
-            elif action == "cursor_position":
-                x, y = result["x"], result["y"]
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Cursor position: [{x}, {y}]",
-                    )
-                ]
-            elif action == "mouse_move":
-                coord = arguments.get("coordinate", [])
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Moved cursor to {coord}",
-                    )
-                ]
-            elif action in ["left_click", "right_click", "middle_click"]:
-                coord = arguments.get("coordinate")
-                if coord:
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"Moved to {coord} and clicked {action.replace('_', ' ')}",
-                        )
-                    ]
-                else:
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"Clicked {action.replace('_', ' ')}",
-                        )
-                    ]
-            elif action in ["double_click", "triple_click"]:
-                coord = arguments.get("coordinate")
-                if coord:
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"Moved to {coord} and {action.replace('_', ' ')}ed",
-                        )
-                    ]
-                else:
-                    return [
-                        TextContent(
-                            type="text",
-                            text=f"{action.replace('_', ' ').capitalize()}ed",
-                        )
-                    ]
-            elif action == "left_click_drag":
-                start = arguments.get("start_coordinate", [])
-                end = arguments.get("end_coordinate", [])
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Dragged from {start} to {end}",
-                    )
-                ]
-            elif action == "type":
-                text = arguments.get("text", "")
-                preview = text[:50] + "..." if len(text) > 50 else text
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Typed: {preview}",
-                    )
-                ]
-            elif action == "key":
-                key = arguments.get("key", "")
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Pressed key: {key}",
-                    )
-                ]
-            elif action == "scroll":
-                direction = arguments.get("scroll_direction", "")
-                amount = arguments.get("scroll_amount", 3)
-                coord = arguments.get("coordinate", [])
-                return [
-                    TextContent(
-                        type="text",
-                        text=f"Scrolled {direction} {amount} units at {coord}",
+                        text=f"Moved to {coord} and clicked {action.replace('_', ' ')}",
                     )
                 ]
             else:
                 return [
                     TextContent(
                         type="text",
-                        text=f"Action completed: {action}",
+                        text=f"Clicked {action.replace('_', ' ')}",
                     )
                 ]
-
-        except Exception as exception:
-            logger.error(f"Action execution error: {exception}", exc_info=True)
+        elif action in ["double_click", "triple_click"]:
+            coord = arguments.get("coordinate")
+            if coord:
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"Moved to {coord} and {action.replace('_', ' ')}ed",
+                    )
+                ]
+            else:
+                return [
+                    TextContent(
+                        type="text",
+                        text=f"{action.replace('_', ' ').capitalize()}ed",
+                    )
+                ]
+        elif action == "left_click_drag":
+            start = arguments.get("start_coordinate", [])
+            end = arguments.get("end_coordinate", [])
             return [
                 TextContent(
                     type="text",
-                    text=f"Error executing {action}: {str(exception)}",
+                    text=f"Dragged from {start} to {end}",
+                )
+            ]
+        elif action == "type":
+            text = arguments.get("text", "")
+            preview = text[:50] + "..." if len(text) > 50 else text
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Typed: {preview}",
+                )
+            ]
+        elif action == "key":
+            key = arguments.get("key", "")
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Pressed key: {key}",
+                )
+            ]
+        elif action == "scroll":
+            direction = arguments.get("scroll_direction", "")
+            amount = arguments.get("scroll_amount", 3)
+            coord = arguments.get("coordinate", [])
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Scrolled {direction} {amount} units at {coord}",
+                )
+            ]
+        else:
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Action completed: {action}",
                 )
             ]
 
@@ -475,7 +829,10 @@ Screen resolution is 1024x768 pixels.""",
     except Exception as e:
         logger.error(f"Server error: {e}", exc_info=True)
     finally:
-        await handler.shutdown_all()
+        await computer_handler.shutdown_all()
+        await browser_handler.shutdown_all()
+        await code_handler.shutdown_all()
+        await sandbox_handler.shutdown_all()
 
 
 def run():

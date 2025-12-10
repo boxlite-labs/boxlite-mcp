@@ -1,36 +1,47 @@
 # boxlite-mcp
 
-> **Powered by [BoxLite](https://boxlite-labs.github.io/website/)** - An embeddable virtual machine runtime following the SQLite philosophy. BoxLite provides hardware-level isolation for AI agents with no daemon required, combining container simplicity with VM security. Coming soon as open source!
+MCP server providing isolated sandbox environments for AI agents.
 
-MCP server for computer use through an isolated sandbox environment.
+## Powered by BoxLite
 
-Provides a `computer` tool compatible with [Anthropic's computer use API](https://docs.anthropic.com/en/docs/agents-and-tools/computer-use), enabling AI agents to control a full desktop environment safely.
+[BoxLite](https://boxlite-labs.github.io/website/) is an embeddable virtual machine runtime that follows the SQLite philosophy - simple, lightweight, and zero-configuration.
+
+### Why BoxLite?
+
+- **Hardware-level isolation** - True VM security, not just containers. Your AI agent runs in a completely isolated environment.
+- **No daemon required** - Unlike Docker, BoxLite doesn't need a background service. Just import and use.
+- **Embeddable** - Designed to be embedded directly into your applications, like SQLite for compute.
+- **Fast startup** - VMs boot in seconds, not minutes.
+- **Cross-platform** - Works on macOS and Linux.
+
+### Use Cases
+
+- **AI Agent Sandboxing** - Let AI agents execute code, browse the web, and use applications safely
+- **Secure Code Execution** - Run untrusted code without risk to your host system
+- **Browser Automation** - Headless browser with CDP for web scraping and testing
+- **Development Environments** - Disposable, reproducible dev environments
 
 ## Demo
 
 [▶️ Watch the demo on YouTube](https://youtu.be/JjwLg6ww234)
 
-
-
 https://github.com/user-attachments/assets/0685d428-64e4-4a68-adfe-c24dc0dc5ae8
 
+## Available Tools
 
-
-## Features
-
-- Full Ubuntu desktop with XFCE environment (1024x768)
-- Anthropic computer use API compatible
-- Mouse control (click, drag, scroll)
-- Keyboard input (typing, key combinations)
-- Screenshot capture
-- Secure sandbox isolation
+| Tool | Description |
+|------|-------------|
+| `computer` | Full Ubuntu desktop with XFCE. Anthropic computer use API compatible. |
+| `browser` | Chromium browser with CDP endpoint for Puppeteer/Playwright/Selenium |
+| `code_interpreter` | Python code execution sandbox |
+| `sandbox` | Generic container for running shell commands |
 
 ## Quick Start
 
 ### Claude Code
 
 ```bash
-claude mcp add computer -- uvx boxlite-mcp
+claude mcp add boxlite -- uvx boxlite-mcp
 ```
 
 ### Claude Desktop
@@ -40,7 +51,7 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 ```json
 {
   "mcpServers": {
-    "computer": {
+    "boxlite": {
       "command": "uvx",
       "args": ["boxlite-mcp"]
     }
@@ -54,58 +65,13 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
 pip install boxlite-mcp
 ```
 
-## Available Actions
-
-### Lifecycle Actions
-
-| Action | Description | Parameters |
-|--------|-------------|------------|
-| `start` | Start a new computer instance | - |
-| `stop` | Stop a computer instance | `computer_id: string` |
-
-### Computer Actions
-
-All actions below require `computer_id` (returned by `start`).
-
-| Action | Description | Parameters |
-|--------|-------------|------------|
-| `screenshot` | Capture current screen | `computer_id` |
-| `mouse_move` | Move cursor | `computer_id`, `coordinate: [x, y]` |
-| `left_click` | Left click | `computer_id`, `coordinate?: [x, y]` |
-| `right_click` | Right click | `computer_id`, `coordinate?: [x, y]` |
-| `middle_click` | Middle click | `computer_id`, `coordinate?: [x, y]` |
-| `double_click` | Double click | `computer_id`, `coordinate?: [x, y]` |
-| `triple_click` | Triple click | `computer_id`, `coordinate?: [x, y]` |
-| `left_click_drag` | Click and drag | `computer_id`, `start_coordinate: [x, y]`, `end_coordinate: [x, y]` |
-| `type` | Type text | `computer_id`, `text: string` |
-| `key` | Press key combination | `computer_id`, `key: string` (e.g., `Return`, `ctrl+c`) |
-| `scroll` | Scroll | `computer_id`, `coordinate: [x, y]`, `scroll_direction: up\|down\|left\|right`, `scroll_amount?: int` |
-| `cursor_position` | Get cursor position | `computer_id` |
-
-Coordinates use `[x, y]` format with origin at top-left `[0, 0]`.
-
 ## Development
 
 ```bash
 git clone https://github.com/boxlite-labs/boxlite-mcp.git
 cd boxlite-mcp
-
-# Install dependencies
 uv sync --extra dev
-
-# Run tests
 uv run pytest
-
-# Run linting
-uv run ruff check .
-```
-
-### Testing Local Code
-
-To test your local changes with Claude Code:
-
-```bash
-claude mcp add computer-dev -- uv run --directory /path/to/boxlite-mcp python -m server
 ```
 
 ## License

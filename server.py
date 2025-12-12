@@ -273,12 +273,12 @@ class ComputerToolHandler:
                 computer = boxlite.ComputerBox(
                     cpu=self._cpus,
                     memory=self._memory_mib,
-                    monitor_http_port=gui_http_port,
-                    monitor_https_port=gui_https_port,
+                    gui_http_port=gui_http_port,
+                    gui_https_port=gui_https_port,
                 )
                 await computer.__aenter__()
                 computer_id = computer.id
-                logger.info(f"ComputerBox {computer_id} created. Desktop at: {computer.endpoint()}")
+                logger.info(f"ComputerBox {computer_id} created with ports HTTP={gui_http_port}, HTTPS={gui_https_port}")
 
                 # Wait for desktop to be ready
                 logger.info(f"Waiting for desktop {computer_id} to become ready...")

@@ -292,7 +292,7 @@ class ComputerToolHandler:
                     "gui_https_port": gui_https_port,
                 }
 
-            except Exception as e:
+            except BaseException as e:
                 error_msg = f"Failed to start ComputerBox: {e}"
                 logger.error(error_msg, exc_info=True)
                 raise RuntimeError(error_msg)

@@ -426,3 +426,97 @@ async def test_sandbox_exec():
         await client.call_sandbox("stop", sandbox_id=sandbox_id)
     finally:
         await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_sandbox_with_volumes():
+    """Test sandbox with volume mounts."""
+    import tempfile
+    import os
+
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        # Create a temporary directory with test file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "test.txt")
+            with open(test_file, "w") as f:
+                f.write("Hello from host")
+
+            # Start sandbox with volume mount
+            result = await client.call_sandbox(
+                "start",
+                image="alpine",
+                volumes=[[tmpdir, "/mnt/host"]]
+            )
+            assert result.content
+            text = result.content[0].text
+            assert "Sandbox started" in text
+            sandbox_id = text.split(": ")[1].strip()
+
+            # Read mounted file from sandbox
+            result = await client.call_sandbox(
+                "exec",
+                sandbox_id=sandbox_id,
+                command="cat /mnt/host/test.txt"
+            )
+            assert result.content
+            assert "Hello from host" in result.content[0].text
+
+            # Stop sandbox
+            await client.call_sandbox("stop", sandbox_id=sandbox_id)
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_sandbox_with_readonly_volumes():
+    """Test sandbox with read-only volume mounts."""
+    import tempfile
+    import os
+
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        # Create a temporary directory with test file
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = os.path.join(tmpdir, "readonly.txt")
+            with open(test_file, "w") as f:
+                f.write("Read-only file")
+
+            # Start sandbox with read-only volume mount
+            result = await client.call_sandbox(
+                "start",
+                image="alpine",
+                volumes=[[tmpdir, "/mnt/host", True]]
+            )
+            assert result.content
+            text = result.content[0].text
+            assert "Sandbox started" in text
+            sandbox_id = text.split(": ")[1].strip()
+
+            # Read mounted file from sandbox
+            result = await client.call_sandbox(
+                "exec",
+                sandbox_id=sandbox_id,
+                command="cat /mnt/host/readonly.txt"
+            )
+            assert result.content
+            assert "Read-only file" in result.content[0].text
+
+            # Try to write to read-only volume (should fail)
+            result = await client.call_sandbox(
+                "exec",
+                sandbox_id=sandbox_id,
+                command="touch /mnt/host/newfile.txt"
+            )
+            assert result.content
+            # Should have exit code indicating failure
+            assert "Read-only file system" in result.content[0].text or "Permission denied" in result.content[0].text or "exit_code" in result.content[0].text
+
+            # Stop sandbox
+            await client.call_sandbox("stop", sandbox_id=sandbox_id)
+    finally:
+        await client.disconnect()

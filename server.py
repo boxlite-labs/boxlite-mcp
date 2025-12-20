@@ -188,12 +188,18 @@ class SandboxToolHandler:
             raise RuntimeError(f"Sandbox '{sandbox_id}' not found. Use 'start' action first.")
         return self._sandboxes[sandbox_id]
 
-    async def start(self, image: str, **kwargs) -> dict:
+    async def start(self, image: str, volumes: Optional[list] = None, **kwargs) -> dict:
         """Start a new sandbox instance."""
         async with self._lock:
             try:
                 logger.info(f"Creating SimpleBox with image '{image}'...")
-                sandbox = boxlite.SimpleBox(image=image)
+                # Convert volume list format to tuples for boxlite
+                boxlite_volumes = None
+                if volumes:
+                    boxlite_volumes = [tuple(v) for v in volumes]
+                    logger.info(f"Creating SimpleBox with volumes: {boxlite_volumes}")
+
+                sandbox = boxlite.SimpleBox(image=image, volumes=boxlite_volumes)
                 await sandbox.__aenter__()
                 sandbox_id = sandbox.id
                 logger.info(f"SimpleBox {sandbox_id} created")
@@ -261,7 +267,7 @@ class ComputerToolHandler:
             raise RuntimeError(f"Computer '{computer_id}' not found. Use 'start' action first.")
         return self._computers[computer_id]
 
-    async def start(self, **kwargs) -> dict:
+    async def start(self, volumes: Optional[list] = None, **kwargs) -> dict:
         """Start a new computer instance and return its ID."""
         async with self._lock:
             try:
@@ -270,11 +276,18 @@ class ComputerToolHandler:
                 gui_https_port = find_available_port()
                 logger.info(f"Creating ComputerBox with ports HTTP={gui_http_port}, HTTPS={gui_https_port}...")
 
+                # Convert volume list format to tuples for boxlite
+                boxlite_volumes = None
+                if volumes:
+                    boxlite_volumes = [tuple(v) for v in volumes]
+                    logger.info(f"Creating ComputerBox with volumes: {boxlite_volumes}")
+
                 computer = boxlite.ComputerBox(
                     cpu=self._cpus,
                     memory=self._memory_mib,
                     gui_http_port=gui_http_port,
                     gui_https_port=gui_https_port,
+                    volumes=boxlite_volumes,
                 )
                 await computer.__aenter__()
                 computer_id = computer.id
@@ -515,7 +528,13 @@ Actions:
 Actions:
 - start: Start container with specified image (requires image, returns sandbox_id)
 - stop: Stop container (requires sandbox_id)
-- exec: Execute shell command (requires sandbox_id and command)""",
+- exec: Execute shell command (requires sandbox_id and command)
+
+Volume mounts:
+- volumes: List of volume mounts. Each mount can be:
+  - A list [host_path, guest_path] for read-write access
+  - A list [host_path, guest_path, true] for read-only access (read_only=true)
+  - Example: [["/tmp", "/mnt/tmp"], ["/home", "/mnt/home", true]]""",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -535,6 +554,16 @@ Actions:
                         "command": {
                             "type": "string",
                             "description": "Shell command to execute (for 'exec' action)",
+                        },
+                        "volumes": {
+                            "type": "array",
+                            "description": "Volume mounts (for 'start' action)",
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 3,
+                                "description": "Volume mount as [host_path, guest_path] or [host_path, guest_path, read_only]",
+                            },
                         },
                     },
                     "required": ["action"],
@@ -561,6 +590,12 @@ Computer actions (all require computer_id):
 - key: Press keys (e.g., 'Return', 'ctrl+c')
 - scroll: Scroll in a direction
 - cursor_position: Get current cursor position
+
+Volume mounts:
+- volumes: List of volume mounts (for 'start' action). Each mount can be:
+  - A list [host_path, guest_path] for read-write access
+  - A list [host_path, guest_path, true] for read-only access (read_only=true)
+  - Example: [["/tmp", "/mnt/tmp"], ["/home", "/mnt/home", true]]
 
 Coordinates use [x, y] format with origin at top-left (0, 0).
 Screen resolution is 1024x768 pixels.""",
@@ -632,6 +667,16 @@ Screen resolution is 1024x768 pixels.""",
                             "minItems": 2,
                             "maxItems": 2,
                             "description": "Ending coordinates for 'left_click_drag' action",
+                        },
+                        "volumes": {
+                            "type": "array",
+                            "description": "Volume mounts (for 'start' action)",
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 3,
+                                "description": "Volume mount as [host_path, guest_path] or [host_path, guest_path, read_only]",
+                            },
                         },
                     },
                     "required": ["action"],

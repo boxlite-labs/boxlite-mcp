@@ -18,7 +18,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.0.0",
-    "boxlite>=0.3.2",
+    "boxlite>=0.5.10",
     "anyio>=4.0.0",
     "httpx>=0.27.0,<1.0",
 ]

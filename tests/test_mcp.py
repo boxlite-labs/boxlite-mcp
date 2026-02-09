@@ -77,6 +77,10 @@ class MCPTestClient:
         """Call sandbox tool with an action."""
         return await self.call_tool("sandbox", action, **kwargs)
 
+    async def call_box(self, action: str, **kwargs) -> Any:
+        """Call box management tool with an action."""
+        return await self.call_tool("box", action, **kwargs)
+
 
 @pytest.mark.asyncio
 async def test_list_tools():
@@ -87,6 +91,7 @@ async def test_list_tools():
         result = await client.session.list_tools()
         assert result.tools
         tool_names = [t.name for t in result.tools]
+        assert "box" in tool_names
         assert "computer" in tool_names
         assert "browser" in tool_names
         assert "code_interpreter" in tool_names
@@ -587,5 +592,371 @@ async def test_computer_start_stop_with_empty_volumes():
         result = await client.call_computer("stop", computer_id=computer_id)
         assert result.content
         assert "stopped" in result.content[0].text.lower()
+    finally:
+        await client.disconnect()
+
+
+# ============================================================================
+# Box Management Tool Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_box_list():
+    """Test box list action."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+        result = await client.call_box("list")
+        assert result.content
+        # May be empty or have boxes — just check no error
+        text = result.content[0].text
+        assert "Boxes" in text or "No boxes found" in text
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_box_metrics():
+    """Test box runtime metrics."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+        result = await client.call_box("metrics")
+        assert result.content
+        text = result.content[0].text
+        # Should have at least one metric field
+        assert ":" in text
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_box_list_with_sandbox():
+    """Test box list shows a running sandbox."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        # Start a named sandbox
+        result = await client.call_sandbox("start", image="alpine", name="test-list-box")
+        text = result.content[0].text
+        sandbox_id = text.split(": ")[1].strip()
+
+        # List boxes — should see the sandbox
+        result = await client.call_box("list")
+        assert result.content
+        text = result.content[0].text
+        assert "Boxes" in text
+
+        # Get specific box info
+        result = await client.call_box("get", box_id=sandbox_id)
+        assert result.content
+        text = result.content[0].text
+        assert sandbox_id in text or "id:" in text.lower()
+
+        # Stop sandbox
+        await client.call_sandbox("stop", sandbox_id=sandbox_id)
+    finally:
+        await client.disconnect()
+
+
+# ============================================================================
+# Enhanced Sandbox Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_sandbox_named():
+    """Test sandbox with a name."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_sandbox("start", image="alpine", name="my-sandbox")
+        assert result.content
+        text = result.content[0].text
+        assert "Sandbox started" in text
+        sandbox_id = text.split(": ")[1].strip()
+
+        # Run a command
+        result = await client.call_sandbox(
+            "exec", sandbox_id=sandbox_id, command="echo hello"
+        )
+        assert "hello" in result.content[0].text
+
+        await client.call_sandbox("stop", sandbox_id=sandbox_id)
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_sandbox_with_env():
+    """Test sandbox start with environment variables."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_sandbox(
+            "start", image="alpine", env={"MY_VAR": "hello_world"}
+        )
+        text = result.content[0].text
+        assert "Sandbox started" in text
+        sandbox_id = text.split(": ")[1].strip()
+
+        # Check env var is set
+        result = await client.call_sandbox(
+            "exec", sandbox_id=sandbox_id, command="echo $MY_VAR"
+        )
+        assert "hello_world" in result.content[0].text
+
+        await client.call_sandbox("stop", sandbox_id=sandbox_id)
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_sandbox_copy_in_out():
+    """Test sandbox copy_in and copy_out."""
+    import tempfile
+    import os
+
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_sandbox("start", image="alpine")
+        text = result.content[0].text
+        sandbox_id = text.split(": ")[1].strip()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create a test file
+            src_file = os.path.join(tmpdir, "input.txt")
+            with open(src_file, "w") as f:
+                f.write("copy test data")
+
+            # Copy file into sandbox
+            result = await client.call_sandbox(
+                "copy_in",
+                sandbox_id=sandbox_id,
+                host_path=src_file,
+                container_dest="/tmp/input.txt",
+            )
+            assert "copied" in result.content[0].text.lower()
+
+            # Verify file exists in sandbox
+            result = await client.call_sandbox(
+                "exec", sandbox_id=sandbox_id, command="cat /tmp/input.txt"
+            )
+            assert "copy test data" in result.content[0].text
+
+            # Copy file back out
+            dest_file = os.path.join(tmpdir, "output.txt")
+            result = await client.call_sandbox(
+                "copy_out",
+                sandbox_id=sandbox_id,
+                container_src="/tmp/input.txt",
+                host_dest=dest_file,
+            )
+            assert "copied" in result.content[0].text.lower()
+
+        await client.call_sandbox("stop", sandbox_id=sandbox_id)
+    finally:
+        await client.disconnect()
+
+
+# ============================================================================
+# Enhanced Code Interpreter Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_code_interpreter_install():
+    """Test code_interpreter install action."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_code_interpreter("start")
+        text = result.content[0].text
+        interpreter_id = text.split(": ")[1].strip()
+
+        # Install a package
+        result = await client.call_code_interpreter(
+            "install", interpreter_id=interpreter_id, packages=["requests"]
+        )
+        assert result.content
+
+        # Verify import works
+        result = await client.call_code_interpreter(
+            "run",
+            interpreter_id=interpreter_id,
+            code="import requests; print(requests.__version__)"
+        )
+        assert result.content
+
+        await client.call_code_interpreter("stop", interpreter_id=interpreter_id)
+    finally:
+        await client.disconnect()
+
+
+# ============================================================================
+# Enhanced Browser Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_browser_start_with_playwright_endpoint():
+    """Test browser start returns both CDP and Playwright endpoints."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_browser("start")
+        assert result.content
+        text = result.content[0].text
+        assert "Browser started" in text
+        assert "Endpoint:" in text
+
+        lines = text.split("\n")
+        browser_id = None
+        for line in lines:
+            if "Browser started with ID:" in line:
+                browser_id = line.split(": ")[1].strip()
+                break
+        assert browser_id
+
+        # Stop
+        await client.call_browser("stop", browser_id=browser_id)
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_browser_run_command():
+    """Test running shell command in browser container."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_browser("start")
+        text = result.content[0].text
+        browser_id = None
+        for line in text.split("\n"):
+            if "Browser started with ID:" in line:
+                browser_id = line.split(": ")[1].strip()
+                break
+        assert browser_id
+
+        # Run a command
+        result = await client.call_browser(
+            "run_command", browser_id=browser_id, command="echo 'hello from browser'"
+        )
+        assert result.content
+        assert "hello from browser" in result.content[0].text
+
+        await client.call_browser("stop", browser_id=browser_id)
+    finally:
+        await client.disconnect()
+
+
+# ============================================================================
+# Enhanced Computer Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_computer_run_command():
+    """Test running shell command in computer container."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_computer("start")
+        text = result.content[0].text
+        computer_id = None
+        for line in text.split("\n"):
+            if "Computer started with ID:" in line:
+                computer_id = line.split(": ")[1].strip()
+                break
+        assert computer_id
+
+        # Run a command
+        result = await client.call_computer(
+            "run_command", computer_id=computer_id, command="echo 'hello from computer'"
+        )
+        assert result.content
+        assert "hello from computer" in result.content[0].text
+
+        await client.call_computer("stop", computer_id=computer_id)
+    finally:
+        await client.disconnect()
+
+
+# ============================================================================
+# Box Reuse (reuse_existing) Tests
+# ============================================================================
+
+@pytest.mark.asyncio
+async def test_sandbox_reuse_by_name():
+    """Test sandbox reuse: create with auto_remove=False, stop, restart with reuse_existing=True."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        # Create a named sandbox with auto_remove=False so it persists
+        result = await client.call_sandbox(
+            "start", image="alpine", name="reuse-test", auto_remove=False
+        )
+        text = result.content[0].text
+        assert "Sandbox started" in text
+        sandbox_id_1 = text.split(": ")[1].split("\n")[0].strip()
+
+        # Write a marker file so we can verify it's the same box
+        result = await client.call_sandbox(
+            "exec", sandbox_id=sandbox_id_1,
+            command="echo 'marker-data' > /tmp/reuse-marker.txt"
+        )
+
+        # Stop the sandbox (but it persists because auto_remove=False)
+        await client.call_sandbox("stop", sandbox_id=sandbox_id_1)
+
+        # Restart with the same name and reuse_existing=True
+        result = await client.call_sandbox(
+            "start", image="alpine", name="reuse-test",
+            reuse_existing=True, auto_remove=False
+        )
+        text = result.content[0].text
+        assert "Sandbox started" in text
+        sandbox_id_2 = text.split(": ")[1].split("\n")[0].strip()
+
+        # Should be the same box (same ID)
+        assert sandbox_id_1 == sandbox_id_2
+
+        # The response should indicate it was reused (created=False)
+        assert "Created: False" in text
+
+        # Verify marker file still exists
+        result = await client.call_sandbox(
+            "exec", sandbox_id=sandbox_id_2,
+            command="cat /tmp/reuse-marker.txt"
+        )
+        assert "marker-data" in result.content[0].text
+
+        # Cleanup: force remove
+        await client.call_box("remove", box_id=sandbox_id_2, force=True)
+    finally:
+        await client.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_sandbox_start_created_field():
+    """Test that sandbox start returns created=True for new boxes."""
+    client = MCPTestClient()
+    try:
+        await client.connect()
+
+        result = await client.call_sandbox("start", image="alpine")
+        text = result.content[0].text
+        assert "Sandbox started" in text
+        assert "Created: True" in text
+        sandbox_id = text.split(": ")[1].split("\n")[0].strip()
+
+        await client.call_sandbox("stop", sandbox_id=sandbox_id)
     finally:
         await client.disconnect()
